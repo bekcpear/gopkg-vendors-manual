@@ -26,35 +26,31 @@ import (
 // returned, without the IPv6 wrapper. This is the common form returned by
 // the standard library's ParseIP: https://play.golang.org/p/qdjylUkKWxl.
 // To convert a standard library IP without the implicit unmapping, use
-// netip.AddrFromSlice.
+// FromStdIPRaw.
 func FromStdIP(std net.IP) (ip netip.Addr, ok bool) {
-	ret, ok := netip.AddrFromSlice(std)
-	return ret.Unmap(), ok
-}
-
-// MustFromStdIP is like FromStdIP, but it panics if std is invalid.
-func MustFromStdIP(std net.IP) netip.Addr {
-	ret, ok := netip.AddrFromSlice(std)
-	if !ok {
-		panic("not a valid IP address")
+	ret, ok := FromStdIPRaw(std)
+	if ret.Is4In6() {
+		ret = ret.Unmap()
 	}
-	return ret.Unmap()
+	return ret, ok
 }
 
 // FromStdIPRaw returns an IP from the standard library's IP type.
 // If std is invalid, ok is false.
 // Unlike FromStdIP, FromStdIPRaw does not do an implicit Unmap if
 // len(std) == 16 and contains an IPv6-mapped IPv4 address.
-//
-// Deprecated: use netip.AddrFromSlice instead.
 func FromStdIPRaw(std net.IP) (ip netip.Addr, ok bool) {
-	return netip.AddrFromSlice(std)
+	switch len(std) {
+	case 4:
+		return netip.AddrFrom4(*(*[4]byte)(std)), true
+	case 16:
+		return netip.AddrFrom16(*(*[16]byte)(std)), true
+	}
+	return netip.Addr{}, false
 }
 
-// AddrNext returns the IP following ip.
+// IPNext returns the IP following ip.
 // If there is none, it returns the IP zero value.
-//
-// Deprecated: use netip.Addr.Next instead.
 func AddrNext(ip netip.Addr) netip.Addr {
 	addr := u128From16(ip.As16()).addOne()
 	if ip.Is4() {
@@ -74,8 +70,6 @@ func AddrNext(ip netip.Addr) netip.Addr {
 
 // AddrPrior returns the IP before ip.
 // If there is none, it returns the IP zero value.
-//
-// Deprecated: use netip.Addr.Prev instead.
 func AddrPrior(ip netip.Addr) netip.Addr {
 	addr := u128From16(ip.As16())
 	if ip.Is4() {
@@ -96,7 +90,7 @@ func AddrPrior(ip netip.Addr) netip.Addr {
 func FromStdAddr(stdIP net.IP, port int, zone string) (_ netip.AddrPort, ok bool) {
 	ip, ok := FromStdIP(stdIP)
 	if !ok || port < 0 || port > math.MaxUint16 {
-		return netip.AddrPort{}, false
+		return
 	}
 	ip = ip.Unmap()
 	if zone != "" {
@@ -131,7 +125,7 @@ func FromStdIPNet(std *net.IPNet) (prefix netip.Prefix, ok bool) {
 	return netip.PrefixFrom(ip, ones), true
 }
 
-// RangeOfPrefix returns the inclusive range of IPs that p covers.
+// Range returns the inclusive range of IPs that p covers.
 //
 // If p is zero or otherwise invalid, Range returns the zero value.
 func RangeOfPrefix(p netip.Prefix) IPRange {
@@ -142,7 +136,7 @@ func RangeOfPrefix(p netip.Prefix) IPRange {
 	return IPRangeFrom(p.Addr(), PrefixLastIP(p))
 }
 
-// PrefixIPNet returns the net.IPNet representation of an netip.Prefix.
+// IPNet returns the net.IPNet representation of an netip.Prefix.
 // The returned value is always non-nil.
 // Any zone identifier is dropped in the conversion.
 func PrefixIPNet(p netip.Prefix) *net.IPNet {
@@ -151,21 +145,7 @@ func PrefixIPNet(p netip.Prefix) *net.IPNet {
 	}
 	return &net.IPNet{
 		IP:   p.Addr().AsSlice(),
-		Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen()),
-	}
-}
-
-// AddrIPNet returns the net.IPNet representation of an netip.Addr
-// with a mask corresponding to the addresses's bit length.
-// The returned value is always non-nil.
-// Any zone identifier is dropped in the conversion.
-func AddrIPNet(addr netip.Addr) *net.IPNet {
-	if !addr.IsValid() {
-		return &net.IPNet{}
-	}
-	return &net.IPNet{
-		IP:   addr.AsSlice(),
-		Mask: net.CIDRMask(addr.BitLen(), addr.BitLen()),
+		Mask: net.CIDRMask(int(p.Bits()), int(p.Addr().BitLen())),
 	}
 }
 
